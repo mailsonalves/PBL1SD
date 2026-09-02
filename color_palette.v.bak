@@ -1,0 +1,32 @@
+// Paleta CLUT 256x24 bits inicializada com tons para Background e Sprites
+module color_palette (
+    input  wire        clk,
+    input  wire        we,
+    input  wire [7:0]  wr_addr,
+    input  wire [23:0] wr_data,
+    input  wire [7:0]  rd_addr,
+    output reg  [23:0] rgb_out
+);
+
+    reg [23:0] clut_ram [0:255];
+
+    initial begin
+        clut_ram[8'h00] = 24'h000000; // Transparente / Preto
+        clut_ram[8'h01] = 24'h5C94FC; // Céu Azul Claro
+        clut_ram[8'h02] = 24'hFFFFFF; // Branco Nuvem
+        clut_ram[8'h06] = 24'h00A800; // Verde Colina
+        clut_ram[8'h0B] = 24'hC84C0C; // Marrom Tijolo
+        clut_ram[8'h0C] = 24'hFCBC3C; // Amarelo Dourado (?)
+        clut_ram[8'h0D] = 24'h00A800; // Verde Cano
+        clut_ram[8'h11] = 24'h80D010; // Grama
+        clut_ram[8'h12] = 24'h885000; // Terra
+        clut_ram[8'hFF] = 24'hFF0000; // Vermelho Polígono
+    end
+
+    always @(posedge clk) begin
+        if (we)
+            clut_ram[wr_addr] <= wr_data;
+        rgb_out <= clut_ram[rd_addr];
+    end
+
+endmodule

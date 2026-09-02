@@ -1,0 +1,81 @@
+// Driver de controle: permite testar alteração de tiles e rasterização via chaves
+module board_input_controller (
+    input  wire        clk,
+    input  wire        rst_n,
+    input  wire [9:0]  SW,
+    input  wire [3:1]  KEY,
+    input  wire        cmd_ready,
+    output reg  [31:0] cmd_data,
+    output reg         cmd_valid
+);
+
+    reg [2:0] sw0_sync;
+    always @(posedge clk or negedge rst_n) begin
+        if (!rst_n)
+            sw0_sync <= 3'b000;
+        else
+            sw0_sync <= {sw0_sync[1:0], SW[0]};
+    end
+
+    wire trigger_draw = (sw0_sync[1] && !sw0_sync[2]);
+
+    localparam S_IDLE    = 3'd0;
+    localparam S_PALETTE = 3'd1;
+    localparam S_V1      = 3'd2;
+    localparam S_V2      = 3'd3;
+    localparam S_V3      = 3'd4;
+    localparam S_WAIT    = 3'd5;
+
+    reg [2:0] state;
+
+    always @(posedge clk or negedge rst_n) begin
+        if (!rst_n) begin
+            state     <= S_IDLE;
+            cmd_data  <= 32'd0;
+            cmd_valid <= 1'b0;
+        end else begin
+            cmd_valid <= 1'b0;
+
+            case (state)
+                S_IDLE: begin
+                    if (trigger_draw)
+                        state <= S_PALETTE;
+                end
+                S_PALETTE: begin
+                    if (cmd_ready) begin
+                        cmd_data  <= {4'h1, 4'h0, 8'hFF, 16'hF800}; // Índice 0xFF = Vermelho
+                        cmd_valid <= 1'b1;
+                        state     <= S_V1;
+                    end
+                end
+                S_V1: begin
+                    if (cmd_ready) begin
+                        cmd_data  <= {4'h7, 4'h0, 3'b000, 9'd160, 8'd50};
+                        cmd_valid <= 1'b1;
+                        state     <= S_V2;
+                    end
+                end
+                S_V2: begin
+                    if (cmd_ready) begin
+                        cmd_data  <= {4'h8, 4'h0, 3'b000, 9'd80, 8'd190};
+                        cmd_valid <= 1'b1;
+                        state     <= S_V3;
+                    end
+                end
+                S_V3: begin
+                    if (cmd_ready) begin
+                        cmd_data  <= {4'h9, 8'hFF, 3'b000, 9'd240, 8'd190}; // Cor 0xFF
+                        cmd_valid <= 1'b1;
+                        state     <= S_WAIT;
+                    end
+                end
+                S_WAIT: begin
+                    if (!sw0_sync[1])
+                        state <= S_IDLE;
+                end
+                default: state <= S_IDLE;
+            endcase
+        end
+    end
+
+endmodule

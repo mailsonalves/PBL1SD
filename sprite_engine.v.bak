@@ -1,0 +1,78 @@
+module sprite_engine (
+    input  wire        clk,
+    input  wire        rst_n,
+
+    // Coordenadas lógicas do feixe VGA atual (320x240)
+    input  wire [8:0]  pixel_x,
+    input  wire [7:0]  pixel_y,
+
+    // Interface SAT
+    input  wire        sat_we,
+    input  wire [4:0]  sat_addr,
+    input  wire [31:0] sat_data,
+
+    output reg  [7:0]  sp_pixel_color_idx
+);
+
+    reg [31:0] sat_ram [0:31];
+
+    // Inicialização: Sprite 0 em (X=30, Y=30) - no canto superior esquerdo, fora do triângulo
+    initial begin
+        sat_ram[0] = {1'b1, 1'b0, 1'b0, 5'd0, 8'd0, 8'd30, 8'd30};
+        sat_ram[1] = 32'd0;
+    end
+
+    always @(posedge clk) begin
+        if (sat_we)
+            sat_ram[sat_addr] <= sat_data;
+    end
+
+    wire [7:0] sprite_colors [0:31];
+    wire       sprite_active_pixel [0:31];
+
+    genvar i;
+    generate
+        for (i = 0; i < 32; i = i + 1) begin : gen_sprites
+            wire [31:0] attr = sat_ram[i];
+            wire enable      = attr[31];
+            wire flip_x      = attr[30];
+            wire flip_y      = attr[29];
+            wire [7:0] sp_y  = attr[15:8];
+            wire [8:0] sp_x  = {1'b0, attr[7:0]};
+
+            // Detecção da caixa 16x16
+            wire inside_x = (pixel_x >= sp_x) && (pixel_x < sp_x + 9'd16);
+            wire inside_y = (pixel_y >= sp_y) && (pixel_y < sp_y + 8'd16);
+            wire hit      = enable && inside_x && inside_y;
+
+            // Coordenada relativa precisa dentro do sprite (0 a 15)
+            wire [8:0] diff_x = pixel_x - sp_x;
+            wire [7:0] diff_y = pixel_y - sp_y;
+            
+            wire [3:0] rel_x = diff_x[3:0];
+            wire [3:0] rel_y = diff_y[3:0];
+
+            // Espelhamento
+            wire [3:0] eff_x = flip_x ? (4'd15 - rel_x) : rel_x;
+            wire [3:0] eff_y = flip_y ? (4'd15 - rel_y) : rel_y;
+
+            // Desenho visível de teste: Caixa com padrão "X" e borda
+            wire is_border = (eff_x == 0 || eff_x == 15 || eff_y == 0 || eff_y == 15);
+            wire is_cross  = (eff_x == eff_y) || (eff_x == (4'd15 - eff_y));
+            
+            // Cor 8'h03 = Borda/Cruz, Cor 8'h04 = Miolo
+            assign sprite_colors[i] = hit ? ((is_border || is_cross) ? 8'h03 : 8'h04) : 8'h00;
+            assign sprite_active_pixel[i] = hit && (sprite_colors[i] != 8'h00);
+        end
+    endgenerate
+
+    integer j;
+    always @(*) begin
+        sp_pixel_color_idx = 8'h00;
+        for (j = 31; j >= 0; j = j - 1) begin
+            if (sprite_active_pixel[j])
+                sp_pixel_color_idx = sprite_colors[j];
+        end
+    end
+
+endmodule

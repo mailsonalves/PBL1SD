@@ -1,0 +1,18 @@
+// Compositor: Prioridade (Polígonos > Sprites > Background) e Transparência
+module compositor (
+    input  wire [7:0] bg_pixel,
+    input  wire [7:0] sp_pixel,
+    input  wire [7:0] poly_pixel,
+    output reg  [7:0] final_pixel_index
+);
+
+    always @(*) begin
+        if (poly_pixel != 8'h00)
+            final_pixel_index = poly_pixel;
+        else if (sp_pixel != 8'h00)
+            final_pixel_index = sp_pixel;
+        else
+            final_pixel_index = bg_pixel;
+    end
+
+endmodule

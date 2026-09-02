@@ -1,0 +1,52 @@
+// Motor de Background: Endereçamento de Mapa e Extração de Pixels
+module bg_engine (
+    input  wire        clk,
+    input  wire [8:0]  pixel_x,     // 0 a 319
+    input  wire [7:0]  pixel_y,     // 0 a 239
+    input  wire [8:0]  scroll_x,    // Offset horizontal
+    input  wire [7:0]  scroll_y,    // Offset vertical
+
+    // Interface de escrita no buffer
+    input  wire        we,
+    input  wire [5:0]  wr_x,
+    input  wire [4:0]  wr_y,
+    input  wire [7:0]  wr_tile_id,
+
+    // Saída de pixel para o Compositor
+    output wire [7:0]  bg_pixel_color_idx
+);
+
+    wire [8:0] eff_x = (pixel_x + scroll_x) % 9'd320;
+    wire [7:0] eff_y = (pixel_y + scroll_y) % 8'd240;
+
+    wire [5:0] tile_x = eff_x[8:3]; // Divisão por 8
+    wire [4:0] tile_y = eff_y[7:3];
+    wire [2:0] sub_x  = eff_x[2:0]; // Módulo 8
+    wire [2:0] sub_y  = eff_y[2:0];
+
+    wire [7:0] current_tile_id;
+    wire [13:0] pattern_addr = {current_tile_id, sub_y, sub_x};
+
+    // Buffer de Tilemap
+    tilemap_ram u_map_buffer (
+        .clk_wr    (clk),
+        .we        (we),
+        .wr_x      (wr_x),
+        .wr_y      (wr_y),
+        .wr_tile_id(wr_tile_id),
+        .clk_rd    (clk),
+        .rd_x      (tile_x),
+        .rd_y      (tile_y),
+        .rd_tile_id(current_tile_id)
+    );
+
+    // VRAM de Padrões
+    pattern_vram u_patterns (
+        .clk     (clk),
+        .we      (1'b0),
+        .addr    (pattern_addr),
+        .data_in (8'd0),
+        .data_out(bg_pixel_color_idx)
+    );
+
+endmodule
