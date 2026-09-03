@@ -1,123 +1,129 @@
+// Rasterizador de Poligonos por Bounding Box e Funcoes de Aresta
 module polygon_rasterizer (
     input  wire        clk,
     input  wire        rst_n,
+    input  wire        start,
+    input  wire        clear_screen,
+    output reg         busy,
 
-    input  wire        start_rect,
-    input  wire [8:0]  rect_x1,
-    input  wire [7:0]  rect_y1,
-    input  wire [8:0]  rect_x2,
-    input  wire [7:0]  rect_y2,
-    input  wire [7:0]  color_idx,
+    input  wire [8:0]  x0, y0,
+    input  wire [8:0]  x1, y1,
+    input  wire [8:0]  x2, y2,
+    input  wire [7:0]  color,
 
-    input  wire        start_tri,
-    input  wire [8:0]  tri_x0,
-    input  wire [7:0]  tri_y0,
-    input  wire [8:0]  tri_x1,
-    input  wire [7:0]  tri_y1,
-    input  wire [8:0]  tri_x2,
-    input  wire [7:0]  tri_y2,
-    input  wire [7:0]  tri_color,
-
-    output reg          busy,
-
-    output reg          fb_we,
-    output reg  [8:0]   fb_x,
-    output reg  [7:0]   fb_y,
-    output reg  [7:0]   fb_color
+    output reg         buf_we,
+    output reg  [16:0] buf_addr,
+    output reg  [7:0]  buf_data
 );
 
-    localparam IDLE        = 2'b00;
-    localparam RASTER_RECT = 2'b01;
-    localparam RASTER_TRI  = 2'b10;
+    localparam IDLE       = 2'd0;
+    localparam SETUP      = 2'd1;
+    localparam RAST_TRI   = 2'd2;
+    localparam RAST_CLEAR = 2'd3;
 
     reg [1:0] state;
+    reg [8:0] min_x, max_x, min_y, max_y;
+    reg [8:0] curr_x, curr_y;
+    reg signed [10:0] vx0, vy0, vx1, vy1, vx2, vy2;
 
-    // --- Retangulo ---
-    reg [8:0] rx_min, rx_max, rcurr_x;
-    reg [7:0] ry_min, ry_max, rcurr_y;
+    wire signed [10:0] px = {2'b00, curr_x};
+    wire signed [10:0] py = {2'b00, curr_y};
 
-    // --- Triangulo ---
-    reg signed [9:0] v0x, v1x, v2x;
-    reg signed [8:0] v0y, v1y, v2y;
-    reg [8:0] tx_min, tx_max, tcurr_x;
-    reg [7:0] ty_min, ty_max, tcurr_y;
-    reg [7:0] tcolor_hold;
+    wire signed [21:0] e01 = (px - vx0) * (vy1 - vy0) - (py - vy0) * (vx1 - vx0);
+    wire signed [21:0] e12 = (px - vx1) * (vy2 - vy1) - (py - vy1) * (vx2 - vx1);
+    wire signed [21:0] e20 = (px - vx2) * (vy0 - vy2) - (py - vy2) * (vx0 - vx2);
 
-    // Funcoes de aresta (aritmetica inteira com sinal)
-    wire signed [19:0] e0 = (v1x - v0x) * ($signed({1'b0,tcurr_y}) - v0y) - (v1y - v0y) * (tcurr_x - v0x);
-    wire signed [19:0] e1 = (v2x - v1x) * ($signed({1'b0,tcurr_y}) - v1y) - (v2y - v1y) * (tcurr_x - v1x);
-    wire signed [19:0] e2 = (v0x - v2x) * ($signed({1'b0,tcurr_y}) - v2y) - (v0y - v2y) * (tcurr_x - v2x);
-    wire inside_tri = (e0 >= 0 && e1 >= 0 && e2 >= 0) || (e0 <= 0 && e1 <= 0 && e2 <= 0);
+    wire is_inside = ((e01 >= 0 && e12 >= 0 && e20 >= 0) || (e01 <= 0 && e12 <= 0 && e20 <= 0));
+
+    function [8:0] min3(input [8:0] a, b, c);
+        min3 = (a < b) ? ((a < c) ? a : c) : ((b < c) ? b : c);
+    endfunction
+
+    function [8:0] max3(input [8:0] a, b, c);
+        max3 = (a > b) ? ((a > c) ? a : c) : ((b > c) ? b : c);
+    endfunction
 
     always @(posedge clk or negedge rst_n) begin
         if (!rst_n) begin
-            state <= IDLE; busy <= 1'b0; fb_we <= 1'b0;
-            fb_x <= 9'd0; fb_y <= 8'd0; fb_color <= 8'd0;
-            rcurr_x <= 9'd0; rcurr_y <= 8'd0;
-            tcurr_x <= 9'd0; tcurr_y <= 8'd0;
+            state    <= IDLE;
+            busy     <= 1'b0;
+            buf_we   <= 1'b0;
+            buf_addr <= 17'd0;
+            buf_data <= 8'd0;
+            curr_x   <= 9'd0;
+            curr_y   <= 9'd0;
         end else begin
-            fb_we <= 1'b0;
+            buf_we <= 1'b0;
 
             case (state)
                 IDLE: begin
-                    if (start_rect) begin
-                        busy    <= 1'b1;
-                        fb_color<= color_idx;
-                        rx_min  <= (rect_x1 < rect_x2) ? rect_x1 : rect_x2;
-                        rx_max  <= (rect_x1 < rect_x2) ? rect_x2 : rect_x1;
-                        ry_min  <= (rect_y1 < rect_y2) ? rect_y1 : rect_y2;
-                        ry_max  <= (rect_y1 < rect_y2) ? rect_y2 : rect_y1;
-                        rcurr_x <= (rect_x1 < rect_x2) ? rect_x1 : rect_x2;
-                        rcurr_y <= (rect_y1 < rect_y2) ? rect_y1 : rect_y2;
-                        state   <= RASTER_RECT;
-                    end else if (start_tri) begin
-                        busy   <= 1'b1;
-                        v0x <= $signed({1'b0,tri_x0}); v0y <= $signed({1'b0,tri_y0});
-                        v1x <= $signed({1'b0,tri_x1}); v1y <= $signed({1'b0,tri_y1});
-                        v2x <= $signed({1'b0,tri_x2}); v2y <= $signed({1'b0,tri_y2});
-                        tcolor_hold <= tri_color;
-                        tx_min <= (tri_x0 < tri_x1) ? ((tri_x0 < tri_x2) ? tri_x0 : tri_x2) : ((tri_x1 < tri_x2) ? tri_x1 : tri_x2);
-                        tx_max <= (tri_x0 > tri_x1) ? ((tri_x0 > tri_x2) ? tri_x0 : tri_x2) : ((tri_x1 > tri_x2) ? tri_x1 : tri_x2);
-                        ty_min <= (tri_y0 < tri_y1) ? ((tri_y0 < tri_y2) ? tri_y0 : tri_y2) : ((tri_y1 < tri_y2) ? tri_y1 : tri_y2);
-                        ty_max <= (tri_y0 > tri_y1) ? ((tri_y0 > tri_y2) ? tri_y0 : tri_y2) : ((tri_y1 > tri_y2) ? tri_y1 : tri_y2);
-                        tcurr_x <= (tri_x0 < tri_x1) ? ((tri_x0 < tri_x2) ? tri_x0 : tri_x2) : ((tri_x1 < tri_x2) ? tri_x1 : tri_x2);
-                        tcurr_y <= (tri_y0 < tri_y1) ? ((tri_y0 < tri_y2) ? tri_y0 : tri_y2) : ((tri_y1 < tri_y2) ? tri_y1 : tri_y2);
-                        state  <= RASTER_TRI;
+                    if (start) begin
+                        busy <= 1'b1;
+                        if (clear_screen) begin
+                            curr_x <= 9'd0;
+                            curr_y <= 9'd0;
+                            state  <= RAST_CLEAR;
+                        end else begin
+                            vx0   <= {2'b00, x0}; vy0 <= {2'b00, y0};
+                            vx1   <= {2'b00, x1}; vy1 <= {2'b00, y1};
+                            vx2   <= {2'b00, x2}; vy2 <= {2'b00, y2};
+
+                            min_x <= min3(x0, x1, x2);
+                            max_x <= max3(x0, x1, x2);
+                            min_y <= min3(y0, y1, y2);
+                            max_y <= max3(y0, y1, y2);
+                            state <= SETUP;
+                        end
+                    end else begin
+                        busy <= 1'b0;
                     end
                 end
 
-                RASTER_RECT: begin
-                    fb_we <= 1'b1; fb_x <= rcurr_x; fb_y <= rcurr_y;
-                    if (rcurr_x < rx_max) begin
-                        rcurr_x <= rcurr_x + 1'b1;
-                    end else begin
-                        rcurr_x <= rx_min;
-                        if (rcurr_y < ry_max) begin
-                            rcurr_y <= rcurr_y + 1'b1;
+                SETUP: begin
+                    curr_x <= min_x;
+                    curr_y <= min_y;
+                    state  <= RAST_TRI;
+                end
+
+                RAST_TRI: begin
+                    if (is_inside && curr_x < 320 && curr_y < 240) begin
+                        buf_we   <= 1'b1;
+                        buf_addr <= curr_y * 17'd320 + curr_x;
+                        buf_data <= color;
+                    end
+
+                    if (curr_x >= max_x) begin
+                        curr_x <= min_x;
+                        if (curr_y >= max_y) begin
+                            state <= IDLE;
+                            busy  <= 1'b0;
                         end else begin
-                            state <= IDLE; busy <= 1'b0;
+                            curr_y <= curr_y + 9'd1;
                         end
+                    end else begin
+                        curr_x <= curr_x + 9'd1;
                     end
                 end
 
-                RASTER_TRI: begin
-                    fb_color <= tcolor_hold;
-                    fb_x     <= tcurr_x;
-                    fb_y     <= tcurr_y;
-                    fb_we    <= inside_tri;
+                RAST_CLEAR: begin
+                    buf_we   <= 1'b1;
+                    buf_addr <= curr_y * 17'd320 + curr_x;
+                    buf_data <= 8'h00;
 
-                    if (tcurr_x < tx_max) begin
-                        tcurr_x <= tcurr_x + 1'b1;
-                    end else begin
-                        tcurr_x <= tx_min;
-                        if (tcurr_y < ty_max) begin
-                            tcurr_y <= tcurr_y + 1'b1;
+                    if (curr_x == 9'd319) begin
+                        curr_x <= 9'd0;
+                        if (curr_y == 9'd239) begin
+                            state <= IDLE;
+                            busy  <= 1'b0;
                         end else begin
-                            state <= IDLE; busy <= 1'b0;
+                            curr_y <= curr_y + 9'd1;
                         end
+                    end else begin
+                        curr_x <= curr_x + 9'd1;
                     end
                 end
             endcase
         end
     end
+
 endmodule
