@@ -177,8 +177,8 @@ As simulações confirmaram a estabilidade do sincronismo e o correto acionament
 A mecânica do jogo já pôde ser implementada e a simulação do comando para ativar a sprite principal do jogo foi adaptada na placa. Dessa forma, foi possível simular a movimentação e renderização em tempo real mesmo sendo em nível de hardware.
 
 ### 7.2 Demonstração em Hardware
-O circuito foi sintetizado no Intel Quartus Prime e a imagem gerada manteve sincronismo estável a 60 Hz, suficiente para visualização da movimentação das sprites e do background
-Os push buttons da placa foram utilizados com a finalidade de testar o funcionamento do circuito....
+O circuito foi sintetizado no Intel Quartus Prime e a imagem gerada manteve sincronismo estável a 60 Hz, suficiente para visualização da movimentação das sprites e do background.
+Os push buttons da placa foram utilizados com a finalidade de testar o funcionamento do circuito. O botão KEY1 é responsável pelo pulo do personagem, enquanto os botões KEY2 e KEY3 desenham um triângulo e um retângulo no centro da tela, respectivamente, para demonstrar o funcionamento do rasterizador de polígonos. Também há o botão KEY0, utilizado para representar um "reset" no jogo, preparando-o para a próxima etapa do produto.
 
 <!-- ESPAÇO PARA FOTOS DO CIRCUITO FÍSICO -->
 Imagem Exibida no Monitor VGA 
